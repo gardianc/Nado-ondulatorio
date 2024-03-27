@@ -1,2 +1,1 @@
-Estudio	experimental	del	nado	ondulatorio	en	la	interfase	aire-agua, LIFEMA & LFG, DF-FCEN-UBA. 
-Trabajo de Laboratorio 6 y 7 (Lic. en Ciencias Físicas-FCEN-UBA) de Nicolás Arcuschin Moreno y Paula Martínez Garbino. 
+Estudio	experimental	del	nado	ondulatorio	en	la	interfase	aire-agua, LIFEMA & LFG, DF-FCEN-UBA. \nTrabajo de Laboratorio 6 y 7 (Lic. en Ciencias Físicas-FCEN-UBA) de Nicolás Arcuschin Moreno y Paula Martínez Garbino. 
