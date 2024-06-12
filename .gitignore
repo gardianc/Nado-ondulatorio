@@ -3,3 +3,6 @@ campos_hall/
 Filamentos/*/*.tiff
 *.jpg
 *.mp4
+*.csv
+.venv
+__pycache__
