@@ -2,5 +2,6 @@ images/
 campos_hall/
 *.mp4
 *.csv
+*.png
 .venv
 __pycache__
