@@ -1,5 +1,6 @@
 images/
-campos_hall/
+campo_x_hall/BX/*
+campo_x_hall/BZ/*
 *.mp4
 *.csv
 *.png
