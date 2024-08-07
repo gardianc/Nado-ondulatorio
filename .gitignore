@@ -5,10 +5,9 @@ campo_x_hall/BZ/*
 *.csv
 *.png
 .venv
-Capturas/*
+fotos/*
 ECO20-45mm/*
-ECO-45mm-PECERA1/*
-ECO20-Fotos/*
 videos/*
-Imaging tests/*
+datos/*
+gráficos/*
 __pycache__
