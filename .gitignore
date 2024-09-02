@@ -4,6 +4,7 @@ campo_x_hall/BZ/*
 *.mp4
 *.csv
 *.png
+*.npy
 .venv
 fotos/*
 ECO20-45mm/*
