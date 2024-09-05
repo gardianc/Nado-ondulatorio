@@ -9,6 +9,7 @@ from numpy import array
 from scipy.fft import fft2, ifft2, ifftshift
 from skimage.draw import disk
 from skimage.io import imread
+from skimage.restoration import unwrap_phase
 from more_itertools import flatten
 
 from pyfcd.fft_inverse_gradient import fftinvgrad
@@ -31,6 +32,7 @@ def ccsgn(i_ref_fft, mask):
 
 @dataclass
 class Carrier:
+    PX_PER_MM: float
     pixel_loc: array
     k_loc: array
     krad: float
@@ -38,27 +40,35 @@ class Carrier:
     ccsgn: array
 
 
-def calculate_carriers(i_ref):
+def calculate_carriers(i_ref, PX_PER_MM=None, square_size=None):
     peaks = find_peaks(i_ref)
     peak_radius = np.linalg.norm(peaks[0] - peaks[1]) / 2
     i_ref_fft = fft2(i_ref)
+    
+    if (PX_PER_MM is None) and (square_size is not None):
+        k_PX = np.concatenate([pixel2kspace(i_ref.shape, peaks[0]), pixel2kspace(i_ref.shape, peaks[1])])
+        lambda_PX = 2*np.pi/np.mean(np.abs(k_PX))
+        lambda_M = 2*square_size
+        PX_PER_MM = lambda_M/lambda_PX
 
-    carriers = [Carrier(peak, pixel2kspace(i_ref.shape, peak), peak_radius, mask, ccsgn(i_ref_fft, mask)) for mask, peak
+
+    carriers = [Carrier(PX_PER_MM, peak, pixel2kspace(i_ref.shape, peak, PX_PER_MM), peak_radius, mask, ccsgn(i_ref_fft, mask)) for mask, peak
                 in
                 [(ifftshift(peak_mask(i_ref.shape, peak, peak_radius)), peak) for peak in peaks]]
     return carriers
 
 
-def fcd(i_def, carriers: List[Carrier]):
+def fcd(i_def, carriers: List[Carrier], unwrap = True):
     i_def_fft = fft2(i_def)
 
-    phis = [-np.angle(ifft2(i_def_fft * c.mask) * c.ccsgn) for c in carriers]
+    phis = [-unwrap_phase(np.angle(ifft2(i_def_fft * c.mask) * c.ccsgn)) for c in carriers] if unwrap \
+            else [-np.angle(ifft2(i_def_fft * c.mask) * c.ccsgn) for c in carriers] 
 
     det_a = carriers[0].k_loc[1] * carriers[1].k_loc[0] - carriers[0].k_loc[0] * carriers[1].k_loc[1]
     u = (carriers[1].k_loc[0] * phis[0] - carriers[0].k_loc[0] * phis[1]) / det_a
     v = (carriers[0].k_loc[1] * phis[1] - carriers[1].k_loc[1] * phis[0]) / det_a
 
-    return fftinvgrad(-u, -v)
+    return fftinvgrad(-u, -v, calibration = carriers[0].PX_PER_MM)
 
 if __name__ == "__main__":
     import argparse

@@ -5,7 +5,7 @@ from scipy.fft import fft2, ifft2
 # Based on work from Sander Wildeman, which based it on the following paper:
 #   Huhn, et al. Exp Fluids (2016), 57, 151, https://doi.org/10.1007/s00348-016-2236-3
 
-def fftinvgrad(fx, fy):
+def fftinvgrad(fx, fy, calibration = None):
     size = fx.shape
 
     # add impulse to boundaries to compensate for non-periodicity
@@ -23,7 +23,8 @@ def fftinvgrad(fx, fy):
     mx = np.mean(fx)
     my = np.mean(fy)
 
-    ky, kx = np.meshgrid(fftfreq(size[0]), fftfreq(size[1]), indexing='ij')
+    ky, kx = np.meshgrid(fftfreq(size[0], calibration/(2*np.pi)), fftfreq(size[1], calibration/(2*np.pi)), indexing='ij') if calibration is not None \
+        else np.meshgrid(fftfreq(size[0]), fftfreq(size[1]), indexing='ij')
 
     # pre-compute k^2
     k2 = kx**2 + ky**2
