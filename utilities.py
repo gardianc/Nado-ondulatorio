@@ -3,11 +3,14 @@ import matplotlib.pyplot as plt
 import cv2 as cv
 from skimage.morphology import remove_small_holes, area_opening, skeletonize
 import pandas as pd
-from matplotlib import rcParams
 from scipy.interpolate import UnivariateSpline
+from scipy.signal import find_peaks, savgol_filter
+from pyfcd.fcd import calculate_carriers, fcd
+from tqdm import tqdm
 
 THRESHOLD = 120
 MAX_PIXEL_VALUE = 255
+FRAME_PER_SECOND = 60
 
 def cortar(frame, limites):
     min_x, max_x, min_y, max_y = limites
@@ -209,3 +212,211 @@ def rotate_curve(x, y, angle, center_point):
         y_rotated.append(y_rot)
     
     return np.array(x_rotated), np.array(y_rotated)
+
+##### SCHLIEREN IMAGING FUNCTIONS ####
+
+def obtener_deformacion(vs, carriers, start = 0, finish = None, SHOW=False, mask = None):
+    frame_count = int(vs.get(7))
+    width  = int(vs.get(3)) - (int(vs.get(3)) - mask[3]) - mask[2]  # float `width`
+    height = int(vs.get(4)) - (int(vs.get(4)) - mask[1]) - mask[0] # float `height`
+    i=0
+    if finish is None:
+        finish = frame_count
+        
+    maps = np.zeros((finish - start + 1,height,width))
+    while(vs.isOpened()):
+        ret, frame = vs.read()
+        if ret:
+            frame_binarized = binarize(frame,threshold=150)
+
+            if i>=start and i<=finish:
+                height_map = fcd(frame_binarized[mask[0]:mask[1],mask[2]:mask[3]], carriers)
+                i_frame = i - start
+                maps[i_frame] = height_map
+            if SHOW:
+                cv.imshow('frame', frame_binarized)
+            if cv.waitKey(1) & 0xFF == ord('q'):
+                break
+            i+=1
+        else:
+            break
+        
+    cv.destroyAllWindows()
+    
+    # Obtengo las dimensiones de las imágenes
+    x_len = maps[0].shape[1]
+    y_len = maps[0].shape[0]
+
+    #Recorto los bordes para eliminar artefactos por la no-periodicidad exacta del patrón
+    maps = [maps[i,int(.1*y_len):int(.9*y_len),int(.1*x_len):int(.9*x_len)] for i in np.arange(len(maps))]
+
+    return maps
+
+def obtener_imagenes_crudas(vs, start = 0, finish = None, SHOW=False, mask = None):
+    frame_count = int(vs.get(7))
+    width  = int(vs.get(3)) - (int(vs.get(3)) - mask[3]) - mask[2]  # float `width`
+    height = int(vs.get(4)) - (int(vs.get(4)) - mask[1]) - mask[0] # float `height`
+    i=0
+    if finish is None:
+        finish = frame_count
+        
+    maps = np.zeros((finish - start + 1,height,width))
+    while(vs.isOpened()):
+        ret, frame = vs.read()
+        if ret:
+            if i>=start and i<=finish:
+                i_frame = i - start
+                maps[i_frame] = gris(frame[mask[0]:mask[1],mask[2]:mask[3],:])
+            if SHOW:
+                cv.imshow('frame', frame)
+            if cv.waitKey(1) & 0xFF == ord('q'):
+                break
+            i+=1
+        else:
+            break
+        
+    cv.destroyAllWindows()
+    return maps
+
+def make_cmap_norm(deformation_maps):
+    max_height = max([abs(deformation_maps[i]).max() for i in np.arange(len(deformation_maps))])
+    norm = plt.Normalize(-max_height, max_height)
+    cmap = plt.colormaps.get_cmap('seismic')
+    return cmap,norm
+
+def load_ref_frame_and_try_mask(vs, mask = None):
+    i=0
+    ref_frame = None
+    while(vs.isOpened()):
+        ret, frame = vs.read()
+        if ret:
+            if mask:
+                frame[:,:mask[2]]  = 0
+                frame[:, mask[3]:] = 0
+                frame[:mask[0], :] = 0
+                frame[mask[1]:, :] = 0
+            frame = frame[mask[0]:mask[1],mask[2]:mask[3]]
+            frame = binarize(frame,threshold=150)
+            if i==0:
+                ref_frame = frame
+            cv.imshow('frame', frame)
+            i+=1
+            if cv.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            break
+    cv.destroyAllWindows()
+    return ref_frame
+
+def save_deformation_maps(PATH, maps, PX_PER_MM = 1):
+    cmap, norm = make_cmap_norm(maps)
+    for i_frame in tqdm(np.arange(len(maps))):
+        fig = plt.figure()
+        plt.imshow(maps[i_frame], aspect='equal', cmap=cmap, norm = norm)
+        cbar_term = plt.colorbar(pad=5e-2, shrink=0.43)
+        plt.xticks(ticks= plt.xticks()[0][1:-1], labels = [str(np.round(i/(PX_PER_MM),1)) for i in plt.xticks()[0][1:-1]])
+        plt.yticks(ticks= plt.yticks()[0][1:-1], labels = [str(np.round(i/(PX_PER_MM),1)) for i in plt.yticks()[0][1:-1]])
+        cbar_term.ax.ticklabel_format(axis='y',style='sci',scilimits=(0,2))
+        cbar_term.ax.set_ylabel('Deformación [mm]',labelpad=10, fontsize=30)
+
+        plt.ylabel('z [mm]')
+        plt.xlabel('x [mm]')
+        plt.grid()
+        fig.tight_layout()
+        plt.savefig(f'{PATH}/{i_frame:03}.tiff')
+        plt.cla()
+        plt.clf()
+        plt.close()
+
+def moving_average(a, n=3):
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
+def propagar_error_omega(lambdas,delta_lambdas, profundidad = None):
+    gravedad = 9810 #[mm/s²]
+    # profundidad = 62 #[mm]
+    gamma = 70e3 # [mN/mm]
+    
+    if not profundidad:
+        w2_func = lambda l,a,b,c: (a*(2*np.pi/l) + b*(2*np.pi/l)**3)*np.tanh((2*np.pi/l)*c)
+        
+        dw2_dl_func = lambda l,a,b,c: (a*(2*np.pi/l) + b*(2*np.pi/l)**3)*(1/np.cosh(c*(2*np.pi/l))**2)*(c/l**2) \
+                                            + (a*(2*np.pi/l)**2 + b*(2*np.pi/l)**4)*np.tanh(c*(2*np.pi/l))
+        w2 = w2_func(lambdas, gravedad, gamma, profundidad)
+        err_w2 = dw2_dl_func(lambdas, gravedad, gamma, profundidad)*delta_lambdas
+
+    else:
+        w2_func = lambda l,a,b: (a*(2*np.pi/l) + b*(2*np.pi/l)**3)
+        
+        dw2_dl_func = lambda l,a,b: (a*(2*np.pi/l)**2 + b*(2*np.pi/l)**4)
+
+
+    err_omega = .5*w2**(-1/2)*err_w2
+    return err_omega
+
+def get_main_frequency(deformation_maps, y0, x0, DEBUG= False):
+    wave_time = [frame[y0, x0] for frame in deformation_maps]
+    fr = np.linspace(0, FRAME_PER_SECOND//2, len(wave_time)//2 + 1)
+    wave_fft = np.abs(np.fft.rfft(wave_time))**2
+    peak_fft = find_peaks(wave_fft)[0]
+    max_peak_fft = np.argmax(wave_fft[peak_fft])
+    main_freq = fr[peak_fft[max_peak_fft]]
+
+    if DEBUG:
+        plt.figure()
+        plt.plot(fr,wave_fft, 'o-', color='blue')
+        plt.axvline(fr[peak_fft[max_peak_fft]], color='r', ls='--', lw=3, label=f'$f_{{pk}} = {main_freq:.1f}$Hz')
+        plt.xlabel('f [Hz]')
+        plt.semilogy()
+        plt.xlim([1,30])
+        plt.legend()
+        plt.show()
+    
+    return main_freq
+
+def get_lambda_w_error(deformation_maps, main_freq, y0, min_x, max_x, n, DEBUG=False, **kwargs_find_peaks):
+    xs = np.arange(min_x,max_x)
+    int_period = int((main_freq**-1)*FRAME_PER_SECOND)
+    number_of_periods = len(deformation_maps)//int_period + 1
+    wave_length = np.zeros(number_of_periods)
+    debug_wave = []
+    debug_peaks = []
+
+    for i,i_frame in enumerate(np.arange(len(deformation_maps) - 1)[20::int_period]):
+        wave = deformation_maps[i_frame][y0, min_x:max_x]
+        wave = savgol_filter(wave, n, polyorder=5)
+        wave_peaks = find_peaks(wave, width=kwargs_find_peaks['width'], rel_height=kwargs_find_peaks['rel_height'])[0]
+        
+        debug_wave.append(wave)
+        debug_peaks.append(wave_peaks)
+        
+        if len(wave_peaks)>1:
+            wave_length[i] = np.diff(xs[wave_peaks]).mean()
+            
+    if DEBUG:
+        plt.figure()
+        plt.title(f'{main_freq:.1f}')
+        for wave,peaks in zip(debug_wave,debug_peaks):
+            plt.plot(xs,wave)
+            plt.plot(xs[peaks],wave[peaks],'x',color='r')
+        plt.show()
+        
+    wavelength = np.mean(wave_length[wave_length!=0])
+    delta_wavelength = np.std(wave_length[wave_length!=0])/np.sqrt(len(wave_length[wave_length!=0]))
+    return wavelength, delta_wavelength
+
+def get_fwhm(fr,fft_vals):
+    index_pico = np.argmax(fft_vals[1:]) + 1 # me da la ubicación del máximo y descarto el primer elemento porque es la componente de continua.
+    altura_media = (np.max(fft_vals)-np.min(fft_vals))/2 # busco la mitad de la altura del gráfico, para calcular su ancho.
+    
+    intervalo_s = np.arange(index_pico-10,index_pico + 10) # defino el intervalo de interés, con un poco más de zoom que antes
+    spline = UnivariateSpline(fr[intervalo_s], fft_vals[intervalo_s]-altura_media,s=0) # calculo la interpolación
+    r1, r2 = spline.roots() # le pido las raíces (que son los puntos a altura media)
+    
+    frecuencia_spline = np.linspace(np.min(fr[intervalo_s]),np.max(fr[intervalo_s]),100*len(fr[intervalo_s]))
+    index_max_spline = np.argmax(spline(frecuencia_spline)) # busco dónde está el máximo
+    max_spline = frecuencia_spline[index_max_spline] # y evalúo
+    
+    print('Máximo interpolado en',np.round(max_spline),'Hz con un ancho a media altura de',r2-r1,'Hz')
+    return r2-r1
