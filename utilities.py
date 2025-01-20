@@ -18,6 +18,9 @@ def gris(frame):
     im_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
     return im_gray
 
+def binarize_gray(frame, threshold = THRESHOLD):
+    _, im_binary = cv.threshold(frame, threshold, MAX_PIXEL_VALUE, cv.THRESH_BINARY)
+    return im_binary
 
 def binarize(frame, threshold = THRESHOLD):
     im_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
@@ -98,7 +101,7 @@ def track_tail(vs, lim, SHOW=False):
                     if cv.waitKey(1) & 0xFF == ord('q'):
                         break
                 else:
-                    print('touches left')
+                    print(f'Termina en frame {i}')
                     break
             else:
                 if SHOW:
@@ -110,17 +113,24 @@ def track_tail(vs, lim, SHOW=False):
             break
         
     cv.destroyAllWindows()
-    return np.array(pos_sk[:i]), np.array(pos_tail[:i])
+    return np.array(pos_sk[:i]), np.array(pos_tail[:i]), i
 
-def binarize_tail(frame):
+def binarize_tail(frame, th=THRESHOLD):
     _, im_binary = cv.threshold(
         src=frame,
-        thresh=100,
+        thresh=th,
         maxval=MAX_PIXEL_VALUE,
         type=cv.THRESH_BINARY)
     
     bool_mask = im_binary > 0 #im_binary contains only 0's and 1's, so this is a mask where all the 0's are false and all the 1's are true.
+    # remove_small_holes rellena manchas negras en el fondo
     im_binary = remove_small_holes(bool_mask)*255
+    # este proceso rellena manchas blancas dentro del cuerpo del filamento
+    y, x = np.where(im_binary==0)
+    im_bin = im_binary[min(y)-1:max(y)+2, min(x)-1:max(x)+2]
+    im_bin = area_opening(im_bin, 400)
+    im_binary[min(y)-1:max(y)+2, min(x)-1:max(x)+2] = im_bin
+
     return im_binary
 
 def skeleton(frame):
