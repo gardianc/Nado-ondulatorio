@@ -121,7 +121,7 @@ def track_tail(vs, lim, SHOW=False):
 def binarize_tail(frame, th=THRESHOLD):
     _, im_binary = cv.threshold(
         src=frame,
-        thresh=th,
+        thresh=th-20,
         maxval=MAX_PIXEL_VALUE,
         type=cv.THRESH_BINARY)
     
@@ -133,20 +133,21 @@ def binarize_tail(frame, th=THRESHOLD):
     im_bin = im_binary[min(y)-1:max(y)+2, min(x)-1:max(x)+2]
     im_bin = area_opening(im_bin, 400)
     im_binary[min(y)-1:max(y)+2, min(x)-1:max(x)+2] = im_bin
-
     return im_binary
 
 def skeleton(frame):
-    arr = frame < 255 #Convert frame to binary mask of 1's and 0's
-    sk = skeletonize(arr)*255 #We apply skeletonize to boolean mask and upscale 1's to 255 (white)
+    arr = frame < 255
+    sk = skeletonize(arr)*255
+    # si sobre una columna que ocupa el esqueleto de la cola hay más de un píxel blanco (debido a globos o ramas)
+    # rellena esos puntos con negro y ubica un píxel blanco en la fila "promedio" de esos puntos.
     _, x = np.where(sk!=0)
-    # esto cierra los globitos
     for c in np.unique(x):
         r = np.where(sk[:, c]!=0)[0]
         for p in r:
             sk[p, c] = 0
         sk[int(np.mean(r)), c] = 255
     tail = np.where(sk!=0)
+    # devuelve la matriz y las coordenadas del esqueleto en la misma
     return sk, tail
 
 def spline_skeleton(tail_x, tail_y):
