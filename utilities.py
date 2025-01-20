@@ -125,7 +125,7 @@ def binarize_tail(frame, th=THRESHOLD):
         maxval=MAX_PIXEL_VALUE,
         type=cv.THRESH_BINARY)
     
-    bool_mask = im_binary > 0 #im_binary contains only 0's and 1's, so this is a mask where all the 0's are false and all the 1's are true.
+    bool_mask = im_binary > 0
     # remove_small_holes rellena manchas negras en el fondo
     im_binary = remove_small_holes(bool_mask)*255
     # este proceso rellena manchas blancas dentro del cuerpo del filamento
@@ -133,6 +133,7 @@ def binarize_tail(frame, th=THRESHOLD):
     im_bin = im_binary[min(y)-1:max(y)+2, min(x)-1:max(x)+2]
     im_bin = area_opening(im_bin, 400)
     im_binary[min(y)-1:max(y)+2, min(x)-1:max(x)+2] = im_bin
+
     return im_binary
 
 def skeleton(frame):
