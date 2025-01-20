@@ -1,10 +1,14 @@
 images/
-campo_x_hall/BX/*
-campo_x_hall/BZ/*
+campo_x_hall/*
+campo_x_hall/*
 *.mp4
 *.csv
 *.png
 *.npy
+*.tiff
+schlieren_maps/*/*.npz
+wavedriver/*/*.npz
+*MAL*
 .venv
 fotos/*
 ECO20-45mm/*
