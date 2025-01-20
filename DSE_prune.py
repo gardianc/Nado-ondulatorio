@@ -207,6 +207,7 @@ def graph2im(graph, shape):
 #         mask_files.append(mask)
 
 # mask_files = []
+# # 'binary.tiff es una frame cualquiera binarizado
 # mask = cv2.imread('binary.tiff',cv2.IMREAD_UNCHANGED)
 # # gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
 # mask_files.append(mask)
