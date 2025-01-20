@@ -10,6 +10,7 @@ wavedriver/*/*.npz
 *MAL*
 .venv
 fotos/*
+examples/example_media/
 ECO20-45mm/*
 videos/*
 datos/*
