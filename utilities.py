@@ -21,7 +21,7 @@ def gris(frame):
     im_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
     return im_gray
 
-def binarize_gray(frame, threshold = THRESHOLD):
+def gray_then_binarize(frame, threshold = THRESHOLD):
     _, im_binary = cv.threshold(frame, threshold, MAX_PIXEL_VALUE, cv.THRESH_BINARY)
     return im_binary
 
@@ -217,6 +217,12 @@ def rotate_curve(x, y, angle, center_point):
 
 ##### SCHLIEREN IMAGING FUNCTIONS ####
 
+def process_image_for_fcd(frame):
+    frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    frame = cv.adaptiveThreshold(frame, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, blockSize=17, C=3)
+    frame = cv.GaussianBlur(frame, (17,17), 3)
+    return frame
+
 def obtener_deformacion(vs, carriers, start = 0, finish = None, SHOW=False, mask = None):
     frame_count = int(vs.get(7))
     width  = int(vs.get(3)) - (int(vs.get(3)) - mask[3]) - mask[2]  # float `width`
@@ -229,14 +235,15 @@ def obtener_deformacion(vs, carriers, start = 0, finish = None, SHOW=False, mask
     while(vs.isOpened()):
         ret, frame = vs.read()
         if ret:
-            frame_binarized = binarize(frame,threshold=150)
+            if mask:
+                frame_processed = process_image_for_fcd(frame[mask[0]:mask[1],mask[2]:mask[3]])
 
             if i>=start and i<=finish:
-                height_map = fcd(frame_binarized[mask[0]:mask[1],mask[2]:mask[3]], carriers)
+                height_map = fcd(frame_processed, carriers)
                 i_frame = i - start
                 maps[i_frame] = height_map
             if SHOW:
-                cv.imshow('frame', frame_binarized)
+                cv.imshow('frame', frame_processed)
             if cv.waitKey(1) & 0xFF == ord('q'):
                 break
             i+=1
@@ -250,9 +257,14 @@ def obtener_deformacion(vs, carriers, start = 0, finish = None, SHOW=False, mask
     y_len = maps[0].shape[0]
 
     #Recorto los bordes para eliminar artefactos por la no-periodicidad exacta del patrón
-    maps = [maps[i,int(.1*y_len):int(.9*y_len),int(.1*x_len):int(.9*x_len)] for i in np.arange(len(maps))]
+    maps = maps[:,int(.01*y_len):int(.99*y_len),int(.1*x_len):int(.9*x_len)]
 
-    return maps
+    return maps, (height, width)
+
+def load_head_trayectories(tag,volt,frec):
+    df = pd.read_csv(f'{tag}/{volt}-{frec}.csv')
+    t,x,y,frame = df['t']*FRAME_PER_SECOND, df['x'], df['y'], df['frame']
+    return x,y,t,frame
 
 def obtener_imagenes_crudas(vs, start = 0, finish = None, SHOW=False, mask = None):
     frame_count = int(vs.get(7))
@@ -284,7 +296,7 @@ def make_cmap_norm(deformation_maps):
     max_height = max([abs(deformation_maps[i]).max() for i in np.arange(len(deformation_maps))])
     norm = plt.Normalize(-max_height, max_height)
     cmap = plt.colormaps.get_cmap('seismic')
-    return cmap,norm
+    return cmap,norm, max_height
 
 def load_ref_frame_and_try_mask(vs, mask = None):
     i=0
